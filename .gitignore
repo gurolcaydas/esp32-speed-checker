@@ -1,0 +1,14 @@
+# Private configurations & credentials
+config.json
+stats.json
+history.json
+
+# Firmware binaries
+*.bin
+
+# Python cache & IDE files
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
+*.log

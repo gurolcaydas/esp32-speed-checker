@@ -1,0 +1,8 @@
+{
+  "wifi_ssid": "YOUR_WIFI_SSID",
+  "wifi_password": "YOUR_WIFI_PASSWORD",
+  "auto_test_interval_min": 30,
+  "timezone_offset_hours": 3,
+  "ap_ssid": "ESP32-SpeedChecker",
+  "ap_password": ""
+}
