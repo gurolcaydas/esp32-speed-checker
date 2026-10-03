@@ -33,10 +33,20 @@ The board is wired to a **0.96" Dual-Color OLED Display (128x64 pixels)** using 
 This OLED is **physically divided into two distinct color zones**:
 1. **Yellow Zone (Rows 0 to 15, 16px high):**
    * Top 16 pixels glow bright Yellow.
-   * **Rule:** Always use this area for a title bar, target name, or status pill (`ONLINE`/`OFFLINE`). Invert it (`fill_rect(0, 0, 128, 16, 1)`) for solid contrast alert headers.
+   * **Design Rule:** Always use this area to display the device's IP (`IP: 192.168.1.41`) in inverted solid yellow (`fill_rect(0, 0, 128, 16, 1)`) with crisp black text.
 2. **Blue Zone (Rows 16 to 63, 48px high):**
    * Lower 48 pixels glow bright Blue.
-   * **Rule:** Use rows 16–63 for diagnostic data, charts, metrics, or server lists. Typically fits **4 lines of 8x8 text** (e.g. Y = 20, 31, 42, 53).
+   * **16-Character Grid:** With standard 8x8 font, each row fits **16 characters (128 pixels)**.
+   * **2-Target Slot Pattern (8 chars each):**
+     * `[NAME 4 chars][ICON 1 char][PING 3 chars]` (64px wide).
+     * Col 0: X = 0..63 (`CAYD ▲ 140`)
+     * Col 1: X = 64..127 (`NALS ▲  28`)
+   * **Custom Pixel Icons (in `display.py`):**
+     * `draw_up_icon(x, y)`: Crisp 5x7 upward arrow (▲).
+     * `draw_down_icon(x, y)`: Crisp 5x7 downward arrow (▼).
+     * `draw_antenna_icon(x, y)`: 5x7 Wi-Fi antenna (antenna mast).
+     * `draw_signal_bars(x, y, rssi)`: 4-step dynamic signal strength meter.
+   * **Row 4 (Y=52):** Dedicated Wi-Fi status line with antenna icon, RSSI dBm, signal bars, and Gateway ping.
 
 ### Tested Driver:
 * **[ssd1306.py](file:///c:/Users/gcayd/OneDrive/Desktop/code/esp32/ssd1306.py)** (MicroPython `framebuf` driver).
