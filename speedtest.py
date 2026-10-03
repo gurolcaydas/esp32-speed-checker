@@ -6,6 +6,7 @@ import gc
 
 STATS_FILE = "stats.json"
 HISTORY_FILE = "history.json"
+MAX_HISTORY_ENTRIES = 20
 
 class ServerMonitor:
     def __init__(self, disp=None, target_servers=None, tz_offset_hours=3):
@@ -63,14 +64,17 @@ class ServerMonitor:
     def _load_history(self):
         try:
             with open(HISTORY_FILE, "r") as f:
-                return json.load(f)
+                h = json.load(f)
+                return h[-MAX_HISTORY_ENTRIES:] if isinstance(h, list) else []
         except Exception:
             return []
 
     def _save_history(self):
         try:
+            gc.collect()
             with open(HISTORY_FILE, "w") as f:
                 json.dump(self.history, f)
+            gc.collect()
         except Exception as e:
             print("Error saving history:", e)
 
@@ -361,7 +365,7 @@ class ServerMonitor:
 
         self.last_result = result
         self.history.append(result)
-        if len(self.history) > 30:
+        if len(self.history) > MAX_HISTORY_ENTRIES:
             self.history.pop(0)
         self._save_history()
 
