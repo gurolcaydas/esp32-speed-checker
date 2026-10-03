@@ -4,7 +4,7 @@ from machine import Pin
 import gc
 
 from config_manager import ConfigManager
-from speedtest import SpeedTester
+from speedtest import ServerMonitor, SpeedTester
 from webserver import WebServer
 from display import DisplayManager
 
@@ -86,14 +86,22 @@ def start_access_point(ap_ssid="ESP32-SpeedChecker", ap_password="", disp=None):
 
 def main():
     print("\n=========================================")
-    print("   ESP32 NETWORK SPEED CHECKER STARTING   ")
+    print("  ESP32 SERVER SENTINEL & HEALTH MONITOR ")
     print("=========================================\n")
     blink_led(4, 80)
 
     disp = DisplayManager(sda_pin=21, scl_pin=22)
     cfg = ConfigManager()
     tz_offset = cfg.config.get("timezone_offset_hours", 3)
-    tester = SpeedTester(disp=disp, tz_offset_hours=tz_offset)
+    target_server = cfg.config.get("target_server", "caydas.cloud")
+    target_port = cfg.config.get("target_port", 80)
+
+    tester = ServerMonitor(
+        disp=disp,
+        target_server=target_server,
+        target_port=target_port,
+        tz_offset_hours=tz_offset
+    )
     server = WebServer(tester, cfg)
 
     ssid = cfg.config.get("wifi_ssid", "").strip()
@@ -107,23 +115,23 @@ def main():
 
     if not connected:
         ip_addr = start_access_point(
-            cfg.config.get("ap_ssid", "ESP32-SpeedChecker"),
+            cfg.config.get("ap_ssid", "ESP32-ServerMonitor"),
             cfg.config.get("ap_password", ""),
             disp=disp
         )
 
     # Start HTTP Web Server
     server.start(port=80)
-    print(f"\n>> Dashboard ready at: http://{ip_addr}/ <<\n")
+    print(f"\n>> Monitor Dashboard ready at: http://{ip_addr}/ <<\n")
 
-    # If already connected on boot, run an initial speed check after 2 seconds
+    # Run initial health check 2 seconds after boot if connected
     if connected:
         time.sleep(2)
         tester.run_full_test()
 
     last_auto_test = time.time()
 
-    print("Listening for web requests and monitoring network... (Press Ctrl+C to stop)\n")
+    print(f"Monitoring '{target_server}' and listening for web requests... (Press Ctrl+C to stop)\n")
 
     while True:
         server.handle_client()
@@ -135,7 +143,7 @@ def main():
             last_auto_test = time.time()
 
         # Check for auto periodic test if connected
-        interval_min = cfg.config.get("auto_test_interval_min", 30)
+        interval_min = cfg.config.get("auto_test_interval_min", 5)
         interval_s = interval_min * 60
         now = time.time()
 

@@ -6,9 +6,11 @@ CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
     "wifi_ssid": "",
     "wifi_password": "",
-    "auto_test_interval_min": 30,
+    "target_server": "caydas.cloud",
+    "target_port": 80,
+    "auto_test_interval_min": 5,
     "timezone_offset_hours": 3,
-    "ap_ssid": "ESP32-SpeedChecker",
+    "ap_ssid": "ESP32-ServerMonitor",
     "ap_password": ""
 }
 
@@ -20,7 +22,6 @@ class ConfigManager:
         try:
             with open(CONFIG_FILE, "r") as f:
                 cfg = json.load(f)
-                # Ensure default keys exist
                 for k, v in DEFAULT_CONFIG.items():
                     if k not in cfg:
                         cfg[k] = v
@@ -49,4 +50,14 @@ class ConfigManager:
             return True
         except Exception as e:
             print("Error updating interval:", e)
+            return False
+
+    def update_target(self, server, port=80):
+        try:
+            self.config["target_server"] = server.strip()
+            self.config["target_port"] = int(port)
+            self.save()
+            return True
+        except Exception as e:
+            print("Error updating target:", e)
             return False

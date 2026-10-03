@@ -139,3 +139,32 @@ class DisplayManager:
         self.oled.text(f"{rssi}dBm [{pct}%]", 44, 53, 1)
 
         self.oled.show()
+
+    def show_server_status(self, target="caydas.cloud", is_up=True, status_code=200, ping_ms=0, net_ms=0, rssi=-50, ip=""):
+        if not self.is_available:
+            return
+        self.oled.fill(0)
+        # Yellow Zone (Rows 0-15): Server Name and UP/DOWN status
+        status_txt = "ONLINE" if is_up else "OFFLINE"
+        short_name = target.replace("http://", "").replace("https://", "").split("/")[0]
+        hdr = f"{short_name[:8]}: {status_txt}"
+        self.draw_yellow_header(hdr, inverted=is_up)
+
+        # Blue Zone (Rows 16-63)
+        # Row 1: State & Status code
+        code_txt = f"{status_code}" if status_code > 0 else "ERR"
+        self.oled.text(f"STATUS: {status_txt} ({code_txt})", 0, 20, 1)
+
+        # Row 2: Latency to server
+        self.oled.text(f"SRV PING: {ping_ms:.0f} ms", 0, 31, 1)
+
+        # Row 3: Internet gateway latency (1.1.1.1)
+        gate_txt = f"{net_ms:.0f} ms" if net_ms > 0 else "DOWN"
+        self.oled.text(f"GATEWAY:  {gate_txt}", 0, 42, 1)
+
+        # Row 4: Wi-Fi Signal
+        pct = 100 if rssi >= -50 else (85 if rssi >= -60 else (70 if rssi >= -70 else 50))
+        self.oled.text(f"WIFI: {rssi}dBm [{pct}%]", 0, 53, 1)
+
+        self.oled.show()
+
