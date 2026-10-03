@@ -40,3 +40,10 @@ To watch live console logs:
 ```bash
 python serial_monitor.py
 ```
+
+---
+
+## 🛠️ Hardware Blueprint & AI Context
+For pinouts, physical OLED color zone splits, MicroPython memory best practices, and lessons learned for future projects, see:
+👉 **[HARDWARE_BLUEPRINT.md](file:///c:/Users/gcayd/OneDrive/Desktop/code/esp32/HARDWARE_BLUEPRINT.md)**
+
