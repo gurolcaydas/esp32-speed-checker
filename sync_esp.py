@@ -77,6 +77,7 @@ def deploy(wifi_ssid=None, wifi_password=None):
         ("display.py", "display.py"),
         ("speedtest.py", "speedtest.py"),
         ("webserver.py", "webserver.py"),
+        ("index.html", "index.html"),
         ("main.py", "main.py"),
     ]
 

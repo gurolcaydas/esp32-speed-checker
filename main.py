@@ -93,13 +93,11 @@ def main():
     disp = DisplayManager(sda_pin=21, scl_pin=22)
     cfg = ConfigManager()
     tz_offset = cfg.config.get("timezone_offset_hours", 3)
-    target_server = cfg.config.get("target_server", "caydas.cloud")
-    target_port = cfg.config.get("target_port", 80)
+    target_servers = cfg.get_targets()
 
     tester = ServerMonitor(
         disp=disp,
-        target_server=target_server,
-        target_port=target_port,
+        target_servers=target_servers,
         tz_offset_hours=tz_offset
     )
     server = WebServer(tester, cfg)
@@ -131,7 +129,8 @@ def main():
 
     last_auto_test = time.time()
 
-    print(f"Monitoring '{target_server}' and listening for web requests... (Press Ctrl+C to stop)\n")
+    targets_desc = ", ".join([t.get("host", "") for t in target_servers])
+    print(f"Monitoring targets [{targets_desc}] and listening for web requests... (Press Ctrl+C to stop)\n")
 
     while True:
         server.handle_client()

@@ -8,10 +8,9 @@ STATS_FILE = "stats.json"
 HISTORY_FILE = "history.json"
 
 class ServerMonitor:
-    def __init__(self, disp=None, target_server="caydas.cloud", target_port=80, tz_offset_hours=3):
+    def __init__(self, disp=None, target_servers=None, tz_offset_hours=3):
         self.disp = disp
-        self.target_server = target_server
-        self.target_port = target_port
+        self.target_servers = target_servers or [{"host": "caydas.cloud", "port": 80}]
         self.tz_offset_hours = tz_offset_hours
         self.stats = self._load_stats()
         self.history = self._load_history()
@@ -20,9 +19,15 @@ class ServerMonitor:
         self.pending_test = False
         self.next_test_in_s = None
 
-    def set_target(self, server, port=80):
-        self.target_server = server
-        self.target_port = int(port)
+    @property
+    def target_server(self):
+        if self.target_servers:
+            return self.target_servers[0].get("host", "caydas.cloud")
+        return "None"
+
+    def set_targets(self, targets):
+        if isinstance(targets, list):
+            self.target_servers = targets
 
     def _get_local_time(self):
         try:
@@ -38,11 +43,13 @@ class ServerMonitor:
             return {
                 "today": {
                     "date": "", "total": 0, "up": 0, "uptime_pct": 100.0,
-                    "ping_min": 0.0, "ping_max": 0.0, "ping_sum": 0.0
+                    "ping_min": 0.0, "ping_max": 0.0, "ping_sum": 0.0,
+                    "servers": {}
                 },
                 "month": {
                     "month": "", "total": 0, "up": 0, "uptime_pct": 100.0,
-                    "ping_min": 0.0, "ping_max": 0.0, "ping_sum": 0.0
+                    "ping_min": 0.0, "ping_max": 0.0, "ping_sum": 0.0,
+                    "servers": {}
                 }
             }
 
@@ -123,7 +130,7 @@ class ServerMonitor:
                     s.close()
                 except:
                     pass
-            time.sleep_ms(60)
+            time.sleep_ms(40)
 
         if not times:
             return {"is_connected": False, "avg": 0, "min": 0, "max": 0, "jitter": 0}
@@ -139,16 +146,11 @@ class ServerMonitor:
             "jitter": round(max_p - min_p, 1)
         }
 
-    def check_server_health(self, host=None, port=None):
+    def check_server_health(self, host, port=80):
         """Performs TCP connection and HTTP health probe to target server."""
-        if not host:
-            host = self.target_server
-        if not port:
-            port = self.target_port
-
         gc.collect()
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(4.0)
+        s.settimeout(3.5)
 
         ping_ms = 0
         ttfb_ms = 0
@@ -182,10 +184,9 @@ class ServerMonitor:
                 else:
                     status_code = 200
             else:
-                # Connected but no response header
                 status_code = 200
 
-            # Consider 2xx, 3xx, 4xx as server UP (it's alive and serving responses)
+            # 2xx, 3xx, 4xx are considered UP (server is alive and responding)
             is_up = (status_code >= 200 and status_code < 500)
         except Exception as e:
             error_msg = str(e)
@@ -208,59 +209,93 @@ class ServerMonitor:
             "error": error_msg
         }
 
-    def _update_stats(self, is_up, ping_ms):
+    def _update_stats(self, servers_res):
         t = self._get_local_time()
         today_str = "{:04d}-{:02d}-{:02d}".format(t[0], t[1], t[2])
         month_str = "{:04d}-{:02d}".format(t[0], t[1])
 
-        # Today stats
+        all_up = all(s.get("is_up") for s in servers_res) if servers_res else False
+        avg_ping = 0
+        pings = [s["ping_ms"] for s in servers_res if s.get("is_up") and s.get("ping_ms", 0) > 0]
+        if pings:
+            avg_ping = round(sum(pings) / len(pings), 1)
+
+        # 1. Today
         td = self.stats.get("today", {})
         if td.get("date") != today_str:
             td = {
                 "date": today_str, "total": 0, "up": 0, "uptime_pct": 100.0,
-                "ping_min": ping_ms if is_up else 0.0, "ping_max": ping_ms if is_up else 0.0,
-                "ping_sum": 0.0
+                "ping_min": avg_ping, "ping_max": avg_ping, "ping_sum": 0.0,
+                "servers": {}
             }
             self.stats["today"] = td
 
         td["total"] = td.get("total", 0) + 1
-        if is_up:
+        if all_up:
             td["up"] = td.get("up", 0) + 1
-            if ping_ms > 0:
-                td["ping_min"] = ping_ms if td.get("ping_min", 0.0) <= 0 else min(td["ping_min"], ping_ms)
-                td["ping_max"] = max(td.get("ping_max", 0.0), ping_ms)
-                td["ping_sum"] = round(td.get("ping_sum", 0.0) + ping_ms, 1)
+        if avg_ping > 0:
+            td["ping_min"] = avg_ping if td.get("ping_min", 0.0) <= 0 else min(td["ping_min"], avg_ping)
+            td["ping_max"] = max(td.get("ping_max", 0.0), avg_ping)
+            td["ping_sum"] = round(td.get("ping_sum", 0.0) + avg_ping, 1)
         td["uptime_pct"] = round((td["up"] / td["total"]) * 100.0, 1)
 
-        # Month stats
+        # Per server breakdown
+        td_srv = td.setdefault("servers", {})
+        for s in servers_res:
+            sh = s["server"]
+            st = td_srv.setdefault(sh, {"total": 0, "up": 0, "uptime_pct": 100.0, "ping_min": 0, "ping_max": 0, "ping_sum": 0.0})
+            st["total"] += 1
+            if s.get("is_up"):
+                st["up"] += 1
+                sp = s.get("ping_ms", 0)
+                if sp > 0:
+                    st["ping_min"] = sp if st.get("ping_min", 0) <= 0 else min(st["ping_min"], sp)
+                    st["ping_max"] = max(st.get("ping_max", 0), sp)
+                    st["ping_sum"] = round(st.get("ping_sum", 0.0) + sp, 1)
+            st["uptime_pct"] = round((st["up"] / st["total"]) * 100.0, 1)
+
+        # 2. Month
         mo = self.stats.get("month", {})
         if mo.get("month") != month_str:
             mo = {
                 "month": month_str, "total": 0, "up": 0, "uptime_pct": 100.0,
-                "ping_min": ping_ms if is_up else 0.0, "ping_max": ping_ms if is_up else 0.0,
-                "ping_sum": 0.0
+                "ping_min": avg_ping, "ping_max": avg_ping, "ping_sum": 0.0,
+                "servers": {}
             }
             self.stats["month"] = mo
 
         mo["total"] = mo.get("total", 0) + 1
-        if is_up:
+        if all_up:
             mo["up"] = mo.get("up", 0) + 1
-            if ping_ms > 0:
-                mo["ping_min"] = ping_ms if mo.get("ping_min", 0.0) <= 0 else min(mo["ping_min"], ping_ms)
-                mo["ping_max"] = max(mo.get("ping_max", 0.0), ping_ms)
-                mo["ping_sum"] = round(mo.get("ping_sum", 0.0) + ping_ms, 1)
+        if avg_ping > 0:
+            mo["ping_min"] = avg_ping if mo.get("ping_min", 0.0) <= 0 else min(mo["ping_min"], avg_ping)
+            mo["ping_max"] = max(mo.get("ping_max", 0.0), avg_ping)
+            mo["ping_sum"] = round(mo.get("ping_sum", 0.0) + avg_ping, 1)
         mo["uptime_pct"] = round((mo["up"] / mo["total"]) * 100.0, 1)
+
+        mo_srv = mo.setdefault("servers", {})
+        for s in servers_res:
+            sh = s["server"]
+            st = mo_srv.setdefault(sh, {"total": 0, "up": 0, "uptime_pct": 100.0, "ping_min": 0, "ping_max": 0, "ping_sum": 0.0})
+            st["total"] += 1
+            if s.get("is_up"):
+                st["up"] += 1
+                sp = s.get("ping_ms", 0)
+                if sp > 0:
+                    st["ping_min"] = sp if st.get("ping_min", 0) <= 0 else min(st["ping_min"], sp)
+                    st["ping_max"] = max(st.get("ping_max", 0), sp)
+                    st["ping_sum"] = round(st.get("ping_sum", 0.0) + sp, 1)
+            st["uptime_pct"] = round((st["up"] / st["total"]) * 100.0, 1)
 
         self._save_stats()
 
     def run_full_test(self):
-        """Main check routine: checks Wi-Fi, Internet, and Server."""
         if self.is_running:
             return {"status": "busy", "message": "Check already running"}
 
         self.is_running = True
         print("\n" + "="*45)
-        print(f"  SERVER SENTINEL CHECK: {self.target_server}")
+        print(f"  MULTI-TARGET SENTINEL CHECK ({len(self.target_servers)} targets)")
         print("="*45)
 
         # 1. Wi-Fi status
@@ -268,44 +303,61 @@ class ServerMonitor:
 
         # 2. Internet Ping (1.1.1.1)
         if self.disp:
-            self.disp.show_testing("1/2 Gateway Ping", progress_pct=40)
+            self.disp.show_testing("Gateway 1.1.1.1", progress_pct=25)
         net_res = self.check_internet_ping()
         print(f"Internet Gateway (1.1.1.1): {'ONLINE' if net_res['is_connected'] else 'OFFLINE'} ({net_res['avg']} ms)")
 
-        # 3. Target Server Check (caydas.cloud)
-        if self.disp:
-            self.disp.show_testing(f"2/2 {self.target_server[:12]}", progress_pct=85)
-        srv_res = self.check_server_health()
-        print(f"Server {self.target_server}: {'UP' if srv_res['is_up'] else 'DOWN'} | HTTP {srv_res['status_code']} | Ping {srv_res['ping_ms']} ms | TTFB {srv_res['response_time_ms']} ms")
+        # 3. Check each target server
+        server_results = []
+        tot_targets = len(self.target_servers)
+        for idx, t in enumerate(self.target_servers):
+            sh = t.get("host", "caydas.cloud")
+            sp = t.get("port", 80)
+            if self.disp:
+                pct = int(35 + ((idx + 1) / max(1, tot_targets)) * 55)
+                self.disp.show_testing(f"{sh[:12]}", progress_pct=pct)
+            s_res = self.check_server_health(sh, sp)
+            server_results.append(s_res)
+            print(f"Server [{sh}]: {'UP' if s_res['is_up'] else 'DOWN'} | HTTP {s_res['status_code']} | Ping {s_res['ping_ms']} ms")
 
-        # Synthesize state
+        # Determine overall flag
+        up_count = sum(1 for s in server_results if s.get("is_up"))
         if not wifi_info['connected']:
             flag = "WIFI_DOWN"
         elif not net_res['is_connected']:
             flag = "NET_DOWN"
-        elif srv_res['is_up']:
-            flag = "ONLINE"
+        elif up_count == len(server_results) and up_count > 0:
+            flag = "ALL_ONLINE"
+        elif up_count > 0:
+            flag = "DEGRADED"
+        elif not server_results:
+            flag = "NO_TARGETS"
         else:
-            flag = "OFFLINE"
+            flag = "ALL_OFFLINE"
 
         t_now = self._get_local_time()
         timestamp = "{:02d}:{:02d}:{:02d}".format(t_now[3], t_now[4], t_now[5])
         date_str = "{:04d}-{:02d}-{:02d}".format(t_now[0], t_now[1], t_now[2])
         short_time = "{:02d}:{:02d}".format(t_now[3], t_now[4])
 
+        first_server = server_results[0] if server_results else {"server": "None", "ping_ms": 0, "status_code": 0, "is_up": False}
+
         result = {
             "timestamp": timestamp,
             "date": date_str,
             "short_time": short_time,
             "flag": flag,
-            "is_server_up": srv_res['is_up'],
-            "target": self.target_server,
-            "server": srv_res,
+            "is_server_up": (up_count > 0),
+            "up_count": up_count,
+            "total_targets": len(server_results),
+            "servers": server_results,
+            "target": first_server.get("server", "caydas.cloud"),
+            "server": first_server,
             "internet": net_res,
             "wifi": wifi_info
         }
 
-        self._update_stats(srv_res['is_up'], srv_res['ping_ms'])
+        self._update_stats(server_results)
 
         self.last_result = result
         self.history.append(result)
@@ -315,11 +367,8 @@ class ServerMonitor:
 
         # Update OLED Display
         if self.disp:
-            self.disp.show_server_status(
-                target=self.target_server,
-                is_up=srv_res['is_up'],
-                status_code=srv_res['status_code'],
-                ping_ms=srv_res['ping_ms'],
+            self.disp.show_multi_server_status(
+                servers=server_results,
                 net_ms=net_res['avg'],
                 rssi=wifi_info.get('rssi', -50),
                 ip=wifi_info.get('ip', '0.0.0.0')
@@ -327,9 +376,9 @@ class ServerMonitor:
 
         self.is_running = False
         print("="*45)
-        print(f"  RESULT: [{flag}] {self.target_server} | Ping: {srv_res['ping_ms']}ms | HTTP {srv_res['status_code']}")
+        print(f"  RESULT: [{flag}] {up_count}/{len(server_results)} Servers UP")
         print("="*45 + "\n")
         return result
 
-# Maintain SpeedTester alias for main.py / compatibility
+# Maintain SpeedTester alias for compatibility
 SpeedTester = ServerMonitor

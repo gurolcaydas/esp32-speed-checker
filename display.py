@@ -168,3 +168,43 @@ class DisplayManager:
 
         self.oled.show()
 
+    def show_multi_server_status(self, servers, net_ms=0, rssi=-50, ip=""):
+        if not self.is_available:
+            return
+        if not servers:
+            self.show_server_status("No Target", False, 0, 0, net_ms, rssi, ip)
+            return
+        if len(servers) == 1:
+            s = servers[0]
+            self.show_server_status(
+                target=s.get("server", "Target"),
+                is_up=s.get("is_up", False),
+                status_code=s.get("status_code", 0),
+                ping_ms=s.get("ping_ms", 0),
+                net_ms=net_ms,
+                rssi=rssi,
+                ip=ip
+            )
+            return
+
+        self.oled.fill(0)
+        up_count = sum(1 for s in servers if s.get("is_up"))
+        total = len(servers)
+        hdr = f"SENTINEL: {up_count}/{total} UP"
+        self.draw_yellow_header(hdr, inverted=(up_count == total))
+
+        y = 20
+        for s in servers[:3]:
+            h_name = s.get("server", "srv").split(".")[0][:6].upper()
+            st = "UP" if s.get("is_up") else "DN"
+            p_ms = f"{s.get('ping_ms', 0):.0f}ms"
+            self.oled.text(f"{h_name:6s} {st:2s} {p_ms:>5s}", 0, y, 1)
+            y += 11
+
+        if y <= 53:
+            pct = 100 if rssi >= -50 else (85 if rssi >= -60 else (70 if rssi >= -70 else 50))
+            self.oled.text(f"WIFI:{rssi}dBm G:{net_ms:.0f}m", 0, 53, 1)
+
+        self.oled.show()
+
+

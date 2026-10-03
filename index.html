@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server Sentinel - Multi-Target Health & Latency Monitor</title>
+<style>
+:root {
+  --bg: #070a13;
+  --card: rgba(18, 26, 44, 0.78);
+  --border: rgba(255, 255, 255, 0.08);
+  --cyan: #00f2fe;
+  --blue: #38bdf8;
+  --purple: #a855f7;
+  --green: #10b981;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+}
+* { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+body { background:linear-gradient(135deg, #070a12 0%, #0f172a 100%); color:var(--text); min-height:100vh; padding:20px; display:flex; justify-content:center; }
+.container { width:100%; max-width:880px; }
+header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--border); }
+.logo-box { display:flex; align-items:center; gap:12px; }
+.badge { background:linear-gradient(135deg, var(--cyan), var(--blue)); color:#04101e; padding:6px 12px; border-radius:10px; font-size:12px; font-weight:800; letter-spacing:0.5px; }
+h1 { font-size:21px; font-weight:800; letter-spacing:-0.5px; }
+.header-pills { display:flex; gap:8px; align-items:center; }
+.pill { padding:5px 12px; border-radius:99px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px; }
+.pill.up { background:rgba(16,185,129,0.18); color:var(--green); border:1px solid rgba(16,185,129,0.35); }
+.pill.down { background:rgba(239,68,68,0.18); color:var(--red); border:1px solid rgba(239,68,68,0.35); }
+.pill.warn { background:rgba(245,158,11,0.18); color:var(--amber); border:1px solid rgba(245,158,11,0.35); }
+.pill.sched { background:rgba(56,189,248,0.12); color:var(--blue); border:1px solid rgba(56,189,248,0.25); }
+.dot { width:8px; height:8px; border-radius:50%; background:currentColor; animation:pulse 1.8s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:16px; margin-bottom:20px; }
+.card { background:var(--card); backdrop-filter:blur(14px); border:1px solid var(--border); border-radius:18px; padding:20px; box-shadow:0 12px 30px rgba(0,0,0,0.35); position:relative; overflow:hidden; }
+.card::before { content:""; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg, var(--cyan), var(--blue)); }
+.card.danger::before { background:linear-gradient(90deg, var(--amber), var(--red)); }
+.card-label { font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:700; letter-spacing:0.6px; margin-bottom:8px; }
+.val-row { display:flex; align-items:baseline; gap:6px; }
+.huge { font-size:36px; font-weight:900; letter-spacing:-1px; line-height:1; }
+.unit { color:var(--muted); font-size:14px; font-weight:600; }
+.subtext { margin-top:8px; font-size:12px; color:var(--muted); }
+
+.action-card { background:var(--card); backdrop-filter:blur(14px); border:1px solid var(--border); border-radius:18px; padding:22px; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
+.sched-box { display:flex; align-items:center; gap:10px; background:rgba(255,255,255,0.04); padding:8px 14px; border-radius:12px; border:1px solid var(--border); }
+.sched-lbl { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; }
+select { background:transparent; border:none; color:#fff; font-size:13px; font-weight:600; cursor:pointer; outline:none; }
+select option { background:#0f172a; color:#fff; }
+.btn { background:linear-gradient(135deg, var(--cyan), var(--blue)); color:#04101e; border:none; padding:12px 24px; border-radius:12px; font-weight:800; font-size:14px; cursor:pointer; transition:transform 0.15s, box-shadow 0.15s; display:inline-flex; align-items:center; gap:8px; }
+.btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,242,254,0.35); }
+.btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; box-shadow:none; }
+.btn-sm { padding:8px 14px; font-size:12px; border-radius:8px; }
+.btn-del { background:rgba(239,68,68,0.15); color:var(--red); border:1px solid rgba(239,68,68,0.3); }
+.btn-del:hover { background:rgba(239,68,68,0.3); box-shadow:none; }
+
+.target-card { margin-bottom:20px; }
+.target-list { display:flex; flex-direction:column; gap:10px; margin-top:14px; margin-bottom:18px; }
+.target-row { display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:12px 16px; flex-wrap:wrap; gap:10px; }
+.target-info { display:flex; align-items:center; gap:12px; }
+.target-name { font-weight:700; font-size:15px; color:#fff; }
+.target-meta { font-size:12px; color:var(--muted); }
+.target-status { display:flex; align-items:center; gap:12px; }
+.add-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding-top:14px; border-top:1px solid rgba(255,255,255,0.06); }
+input { background:rgba(255,255,255,0.05); border:1px solid var(--border); padding:10px 14px; border-radius:10px; color:#fff; font-size:14px; flex:1; min-width:180px; }
+input:focus { outline:none; border-color:var(--cyan); }
+
+.chart-card { margin-bottom:20px; }
+.chart-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+.legend-row { display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+.legend-item { display:flex; align-items:center; gap:6px; }
+.legend-dot { width:8px; height:8px; border-radius:50%; }
+.chart-container { position:relative; width:100%; height:220px; }
+canvas { width:100%; height:100%; display:block; }
+
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:16px; margin-bottom:20px; }
+.stat-card { padding:20px; }
+.card-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.tag-pill { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--muted); font-size:11px; padding:3px 8px; border-radius:6px; font-weight:600; }
+.stat-metrics { display:flex; flex-direction:column; gap:10px; }
+.metric-row { display:flex; justify-content:space-between; align-items:center; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.04); }
+.m-name { font-size:13px; color:var(--muted); font-weight:600; }
+.m-vals { display:flex; align-items:baseline; gap:5px; font-family:monospace; }
+.m-best { color:var(--green); font-weight:800; font-size:15px; }
+.m-worst { color:var(--amber); font-weight:800; font-size:15px; }
+.m-div { color:var(--muted); font-size:12px; }
+.m-unit { color:var(--muted); font-size:11px; }
+.stat-footer { margin-top:12px; font-size:12px; color:var(--muted); text-align:right; }
+
+table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
+th { text-align:left; color:var(--muted); font-weight:600; padding:10px 8px; border-bottom:1px solid var(--border); }
+td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.03); }
+
+.config-section { margin-top:20px; background:var(--card); border:1px solid var(--border); border-radius:18px; padding:20px; }
+.form-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+.toast { font-size:12px; color:var(--cyan); margin-top:8px; min-height:16px; }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <div class="logo-box">
+    <span class="badge">ESP32</span>
+    <h1>Server Sentinel & Latency Monitor</h1>
+  </div>
+  <div class="header-pills">
+    <div class="pill sched" id="schedPill">Auto: 5m</div>
+    <div class="pill up" id="statusPill"><span class="dot"></span><span id="statusTxt">All Targets ONLINE</span></div>
+  </div>
+</header>
+
+<div class="grid">
+  <!-- Card 1: Overall Status Flag -->
+  <div class="card" id="flagCard">
+    <div class="card-label">Overall Sentinel Status</div>
+    <div class="val-row"><span class="huge" id="flagVal" style="color:var(--green)">ONLINE</span></div>
+    <div class="subtext" id="flagSub">Monitoring target servers</div>
+  </div>
+
+  <!-- Card 2: Active Targets -->
+  <div class="card">
+    <div class="card-label">Monitored Targets</div>
+    <div class="val-row"><span class="huge" id="targetCount" style="color:var(--cyan)">--</span><span class="unit">servers</span></div>
+    <div class="subtext" id="targetUpSub">-- / -- online</div>
+  </div>
+
+  <!-- Card 3: Gateway Latency -->
+  <div class="card">
+    <div class="card-label">Internet Gateway (1.1.1.1)</div>
+    <div class="val-row"><span class="huge" id="gateVal" style="color:var(--blue)">--</span><span class="unit">ms</span></div>
+    <div class="subtext" id="jitterSub">Jitter: -- ms</div>
+  </div>
+
+  <!-- Card 4: Wi-Fi Signal -->
+  <div class="card">
+    <div class="card-label">Local Wi-Fi Signal</div>
+    <div class="val-row"><span class="huge" id="rssiVal" style="color:var(--green)">--</span><span class="unit">dBm</span></div>
+    <div class="subtext" id="rssiQuality">Quality: --</div>
+  </div>
+</div>
+
+<!-- TARGET SERVERS MANAGEMENT CARD -->
+<div class="card target-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div>
+      <div class="card-label" style="margin-bottom:2px">Target Servers & Services</div>
+      <p style="color:var(--muted);font-size:13px">Add or remove servers to monitor their real-time uptime & latency.</p>
+    </div>
+    <button class="btn btn-sm" id="runBtn" onclick="triggerTest()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+      <span>Probe Now</span>
+    </button>
+  </div>
+
+  <div class="target-list" id="targetList">
+    <div style="color:var(--muted);font-size:13px;padding:8px 0">Loading servers...</div>
+  </div>
+
+  <div class="add-bar">
+    <input type="text" id="newHost" placeholder="New target hostname (e.g. google.com, api.site.com)">
+    <input type="number" id="newPort" placeholder="Port" value="80" style="max-width:100px">
+    <button class="btn btn-sm" onclick="addTarget()">+ Add Server Target</button>
+  </div>
+  <div class="toast" id="targetMsg"></div>
+</div>
+
+<div class="action-card">
+  <div>
+    <h3 style="margin-bottom:4px;font-size:16px">Scheduled Heartbeat Checks</h3>
+    <p style="color:var(--muted);font-size:13px" id="lastTested">Last check: Not checked yet</p>
+  </div>
+  <div class="sched-box">
+    <span class="sched-lbl">Check Every:</span>
+    <select id="intervalSel" onchange="updateInterval()">
+      <option value="0">Disabled (Manual only)</option>
+      <option value="1">Every 1 Minute</option>
+      <option value="2">Every 2 Minutes</option>
+      <option value="5" selected>Every 5 Minutes (Recommended)</option>
+      <option value="15">Every 15 Minutes</option>
+      <option value="30">Every 30 Minutes</option>
+      <option value="60">Every 1 Hour</option>
+    </select>
+  </div>
+</div>
+
+<!-- LATENCY TIMELINE CHART -->
+<div class="card chart-card">
+  <div class="chart-header">
+    <div>
+      <div class="card-label" style="margin-bottom:4px">Multi-Target Response & Latency Trend (ms)</div>
+      <div class="legend-row" id="chartLegend"></div>
+    </div>
+  </div>
+  <div class="chart-container">
+    <canvas id="perfChart"></canvas>
+  </div>
+</div>
+
+<!-- TODAY & MONTH UPTIME & LATENCIES -->
+<div class="stats-grid">
+  <!-- Today's Stats Card -->
+  <div class="card stat-card">
+    <div class="card-head">
+      <div class="card-label">Today's Performance</div>
+      <span class="tag-pill" id="tdTag">Today</span>
+    </div>
+    <div class="stat-metrics">
+      <div class="metric-row">
+        <span class="m-name">Overall Availability</span>
+        <div class="m-vals"><span class="m-best" id="tdUptime" style="font-size:18px">100.0%</span></div>
+      </div>
+      <div class="metric-row">
+        <span class="m-name">Latency (Lowest / Highest)</span>
+        <div class="m-vals">
+          <span class="m-best" id="tdPingMin">--</span>
+          <span class="m-div">/</span>
+          <span class="m-worst" id="tdPingMax">--</span>
+          <span class="m-unit">ms</span>
+        </div>
+      </div>
+      <div class="metric-row">
+        <span class="m-name">Average Latency</span>
+        <div class="m-vals"><span class="m-best" id="tdPingAvg">--</span><span class="m-unit">ms</span></div>
+      </div>
+    </div>
+    <div class="stat-footer" id="tdSummary">Total Checks: 0</div>
+  </div>
+
+  <!-- Month's Stats Card -->
+  <div class="card stat-card">
+    <div class="card-head">
+      <div class="card-label">This Month's Performance</div>
+      <span class="tag-pill" id="moTag">This Month</span>
+    </div>
+    <div class="stat-metrics">
+      <div class="metric-row">
+        <span class="m-name">Monthly Availability</span>
+        <div class="m-vals"><span class="m-best" id="moUptime" style="font-size:18px">100.0%</span></div>
+      </div>
+      <div class="metric-row">
+        <span class="m-name">Latency (Lowest / Highest)</span>
+        <div class="m-vals">
+          <span class="m-best" id="moPingMin">--</span>
+          <span class="m-div">/</span>
+          <span class="m-worst" id="moPingMax">--</span>
+          <span class="m-unit">ms</span>
+        </div>
+      </div>
+      <div class="metric-row">
+        <span class="m-name">Monthly Average Latency</span>
+        <div class="m-vals"><span class="m-best" id="moPingAvg">--</span><span class="m-unit">ms</span></div>
+      </div>
+    </div>
+    <div class="stat-footer" id="moSummary">Total Checks: 0</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:20px">
+  <div class="card-label">Recent Multi-Target Check History</div>
+  <table>
+    <thead><tr><th>Time</th><th>Status Flag</th><th>Up / Total</th><th>Gateway Ping</th><th>Servers Probed</th></tr></thead>
+    <tbody id="histBody"><tr><td colspan="5" style="color:var(--muted)">No checks recorded yet.</td></tr></tbody>
+  </table>
+</div>
+
+<div class="config-section">
+  <div class="card-label">Wi-Fi Network Configuration</div>
+  <div class="form-row">
+    <input type="text" id="ssid" placeholder="Wi-Fi SSID">
+    <input type="password" id="pw" placeholder="Wi-Fi Password">
+    <button class="btn btn-sm" onclick="saveWifi()">Save & Reconnect</button>
+  </div>
+  <div class="toast" id="cfgMsg"></div>
+</div>
+
+</div>
+
+<script>
+let polling = false;
+let historyData = [];
+let currentTargets = [];
+let hoverIdx = -1;
+
+const COLORS = ['#00f2fe', '#a855f7', '#10b981', '#f43f5e', '#f59e0b', '#38bdf8'];
+
+function getColor(i){
+  return COLORS[i % COLORS.length];
+}
+
+function drawChart(){
+  const canvas = document.getElementById('perfChart');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  
+  canvas.width = rect.width * dpr;
+  canvas.height = 220 * dpr;
+  ctx.scale(dpr, dpr);
+  
+  const w = rect.width;
+  const h = 220;
+  ctx.clearRect(0, 0, w, h);
+  
+  if(!historyData || historyData.length === 0){
+    ctx.fillStyle = '#64748b';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No history points recorded yet. Click "Probe Now" to start.', w/2, h/2);
+    return;
+  }
+  
+  const padL = 46, padR = 24, padT = 20, padB = 30;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const pts = historyData;
+  const n = pts.length;
+  
+  const serverNames = [];
+  pts.forEach(p => {
+    if(p.servers){
+      p.servers.forEach(s => {
+        if(!serverNames.includes(s.server)) serverNames.push(s.server);
+      });
+    }else if(p.server && p.server.server && !serverNames.includes(p.server.server)){
+      serverNames.push(p.server.server);
+    }
+  });
+
+  const legEl = document.getElementById('chartLegend');
+  if(legEl){
+    let lHtml = '';
+    serverNames.forEach((s, idx) => {
+      lHtml += `<div class="legend-item"><span class="legend-dot" style="background:${getColor(idx)}"></span> ${s}</div>`;
+    });
+    lHtml += `<div class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span> Gateway 1.1.1.1</div>`;
+    legEl.innerHTML = lHtml;
+  }
+
+  let maxMs = 50;
+  pts.forEach(p => {
+    if(p.servers){
+      p.servers.forEach(s => { if(s.ping_ms > maxMs) maxMs = s.ping_ms; });
+    }else if(p.server && p.server.ping_ms > maxMs){
+      maxMs = p.server.ping_ms;
+    }
+    if(p.internet && p.internet.avg > maxMs) maxMs = p.internet.avg;
+  });
+  maxMs = Math.ceil(maxMs * 1.25);
+  
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.lineWidth = 1;
+  
+  const gridSteps = 4;
+  for(let i=0; i<=gridSteps; i++){
+    const y = padT + (plotH / gridSteps) * i;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(w - padR, y);
+    ctx.stroke();
+    const v = Math.round(maxMs - (maxMs / gridSteps) * i);
+    ctx.fillText(v + 'ms', padL - 8, y + 4);
+  }
+  
+  function getX(i){
+    if(n === 1) return padL + plotW / 2;
+    return padL + (i / (n - 1)) * plotW;
+  }
+  function getY(v){
+    return padT + plotH - (v / maxMs) * plotH;
+  }
+  
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#64748b';
+  for(let i=0; i<n; i++){
+    if(n > 8 && i % Math.ceil(n / 6) !== 0 && i !== n - 1) continue;
+    const x = getX(i);
+    const lbl = pts[i].short_time || pts[i].timestamp || ('#' + (i+1));
+    ctx.fillText(lbl, x, h - 8);
+  }
+  
+  function drawServerLine(sName, color){
+    ctx.beginPath();
+    for(let i=0; i<n; i++){
+      let v = 0;
+      const p = pts[i];
+      if(p.servers){
+        const match = p.servers.find(x => x.server === sName);
+        if(match) v = match.ping_ms;
+      }else if(p.server && p.server.server === sName){
+        v = p.server.ping_ms;
+      }
+      const x = getX(i);
+      const y = getY(v);
+      if(i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    for(let i=0; i<n; i++){
+      let v = 0;
+      const p = pts[i];
+      if(p.servers){
+        const match = p.servers.find(x => x.server === sName);
+        if(match) v = match.ping_ms;
+      }else if(p.server && p.server.server === sName){
+        v = p.server.ping_ms;
+      }
+      const x = getX(i);
+      const y = getY(v);
+      ctx.beginPath();
+      ctx.arc(x, y, (hoverIdx === i) ? 5 : 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#070a13';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  serverNames.forEach((s, idx) => {
+    drawServerLine(s, getColor(idx));
+  });
+
+  ctx.beginPath();
+  for(let i=0; i<n; i++){
+    const v = (pts[i].internet && pts[i].internet.avg) ? pts[i].internet.avg : 0;
+    const x = getX(i);
+    const y = getY(v);
+    if(i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 1.8;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  if(hoverIdx >= 0 && hoverIdx < n){
+    const p = pts[hoverIdx];
+    const x = getX(hoverIdx);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, padT);
+    ctx.lineTo(x, padT + plotH);
+    ctx.stroke();
+
+    let details = `${p.timestamp || ''}`;
+    if(p.servers){
+      p.servers.forEach(s => {
+        details += ` | ${s.server.split('.')[0]}: ${s.ping_ms}ms`;
+      });
+    }
+    const gMs = (p.internet && p.internet.avg) ? p.internet.avg : 0;
+    details += ` | Gate: ${gMs}ms`;
+
+    ctx.font = '11px sans-serif';
+    const tw = ctx.measureText(details).width;
+    let tx = x - tw / 2 - 8;
+    if(tx < padL) tx = padL;
+    if(tx + tw + 16 > w - padR) tx = w - padR - tw - 16;
+    
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(tx, 4, tw + 16, 20);
+    ctx.fill();
+    ctx.stroke();
+    
+    ctx.fillStyle = '#f8fafc';
+    ctx.textAlign = 'left';
+    ctx.fillText(details, tx + 8, 18);
+  }
+}
+
+const canvasEl = document.getElementById('perfChart');
+if(canvasEl){
+  canvasEl.addEventListener('mousemove', e => {
+    if(!historyData || historyData.length === 0) return;
+    const r = canvasEl.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const padL = 46, padR = 24;
+    const plotW = r.width - padL - padR;
+    const n = historyData.length;
+    if(n === 1){ hoverIdx = 0; }
+    else{
+      const ratio = Math.max(0, Math.min(1, (x - padL) / plotW));
+      hoverIdx = Math.round(ratio * (n - 1));
+    }
+    drawChart();
+  });
+  canvasEl.addEventListener('mouseleave', () => { hoverIdx = -1; drawChart(); });
+}
+window.addEventListener('resize', drawChart);
+
+async function fetchStatus(){
+  try{
+    const r = await fetch('/api/status');
+    const d = await r.json();
+
+    currentTargets = d.targets || [];
+    renderTargets(currentTargets, (d.last && d.last.servers) ? d.last.servers : []);
+
+    const flagVal = document.getElementById('flagVal');
+    const flagSub = document.getElementById('flagSub');
+    const sPill = document.getElementById('statusPill');
+    const sTxt = document.getElementById('statusTxt');
+    const flagCard = document.getElementById('flagCard');
+
+    const flag = d.flag || 'ALL_ONLINE';
+    if(flag === 'ALL_ONLINE'){
+      flagVal.innerText = 'ONLINE';
+      flagVal.style.color = 'var(--green)';
+      flagCard.className = 'card';
+      sPill.className = 'pill up';
+      sTxt.innerText = 'All Targets ONLINE';
+      flagSub.innerText = `${currentTargets.length} targets healthy`;
+    }else if(flag === 'DEGRADED'){
+      flagVal.innerText = 'DEGRADED';
+      flagVal.style.color = 'var(--amber)';
+      flagCard.className = 'card danger';
+      sPill.className = 'pill warn';
+      sTxt.innerText = 'Partial Server Outage';
+      flagSub.innerText = 'Some targets unreachable';
+    }else{
+      flagVal.innerText = flag;
+      flagVal.style.color = 'var(--red)';
+      flagCard.className = 'card danger';
+      sPill.className = 'pill down';
+      sTxt.innerText = 'Server Outage Alert';
+      flagSub.innerText = 'Target servers offline';
+    }
+
+    const upCnt = (d.last && d.last.up_count !== undefined) ? d.last.up_count : currentTargets.length;
+    document.getElementById('targetCount').innerText = currentTargets.length;
+    document.getElementById('targetUpSub').innerText = `${upCnt} of ${currentTargets.length} servers up`;
+
+    if(d.internet){
+      document.getElementById('gateVal').innerText = d.internet.avg || '--';
+      document.getElementById('jitterSub').innerText = 'Jitter: ' + (d.internet.jitter || 0) + ' ms';
+    }
+    if(d.wifi){
+      document.getElementById('rssiVal').innerText = d.wifi.rssi || '--';
+      document.getElementById('rssiQuality').innerText = (d.wifi.quality || '--') + ' (' + (d.wifi.percent || 0) + '%)';
+    }
+    if(d.last){
+      document.getElementById('lastTested').innerText = 'Last check: ' + d.last.timestamp + ' (' + d.last.flag + ')';
+    }
+
+    if(d.history){
+      historyData = d.history;
+      drawChart();
+      if(d.history.length > 0){
+        let h = '';
+        for(let i=d.history.length-1; i>=0; i--){
+          const x = d.history[i];
+          const stColor = (x.flag === 'ALL_ONLINE') ? 'var(--green)' : ((x.flag === 'DEGRADED') ? 'var(--amber)' : 'var(--red)');
+          const srvSummary = (x.servers || []).map(s => `${s.server}: ${s.ping_ms}ms [${s.status_code}]`).join(', ');
+          const upCountTxt = `${x.up_count || 0}/${x.total_targets || (x.servers ? x.servers.length : 1)}`;
+          h += `<tr><td>${x.date ? (x.date.slice(5) + ' ') : ''}${x.timestamp}</td><td><span style="color:${stColor};font-weight:700">${x.flag}</span></td><td>${upCountTxt}</td><td>${x.internet ? x.internet.avg : 0} ms</td><td style="font-size:12px;color:var(--muted)">${srvSummary}</td></tr>`;
+        }
+        document.getElementById('histBody').innerHTML = h;
+      }
+    }
+
+    if(d.stats) renderExtremes(d.stats);
+
+    if(d.interval_min !== undefined){
+      const sel = document.getElementById('intervalSel');
+      if(document.activeElement !== sel) sel.value = d.interval_min;
+      const sched = document.getElementById('schedPill');
+      if(d.interval_min === 0){
+        sched.innerText = 'Auto: Off';
+      }else if(d.next_test_in_s !== null && d.next_test_in_s !== undefined){
+        const m = Math.floor(d.next_test_in_s / 60);
+        const s = d.next_test_in_s % 60;
+        sched.innerText = `Next: ${m}m ${s}s`;
+      }else{
+        sched.innerText = `Auto: ${d.interval_min}m`;
+      }
+    }
+
+    const btn = document.getElementById('runBtn');
+    if(d.is_running){
+      btn.disabled = true;
+      btn.querySelector('span').innerText = 'Probing targets...';
+      if(!polling){ polling = setInterval(fetchStatus, 2000); }
+    }else{
+      btn.disabled = false;
+      btn.querySelector('span').innerText = 'Probe Now';
+      if(polling){ clearInterval(polling); polling = false; }
+    }
+  }catch(e){ console.error(e); }
+}
+
+function renderTargets(targets, liveServers){
+  const listEl = document.getElementById('targetList');
+  if(!targets || targets.length === 0){
+    listEl.innerHTML = '<div style="color:var(--amber);font-size:13px;padding:8px 0">No target servers configured. Add one below!</div>';
+    return;
+  }
+  let html = '';
+  targets.forEach((t, i) => {
+    const sInfo = liveServers.find(s => s.server === t.host) || {};
+    const isUp = sInfo.is_up !== undefined ? sInfo.is_up : true;
+    const stBadge = isUp 
+      ? '<span style="color:var(--green);font-weight:700">&#x25CF; ONLINE</span>' 
+      : '<span style="color:var(--red);font-weight:700">&#x25CF; OFFLINE</span>';
+    const pingTxt = sInfo.ping_ms ? `${sInfo.ping_ms} ms` : '-- ms';
+    const codeTxt = sInfo.status_code ? `HTTP ${sInfo.status_code}` : 'No response';
+
+    html += `
+    <div class="target-row">
+      <div class="target-info">
+        <span class="legend-dot" style="background:${getColor(i)};width:10px;height:10px"></span>
+        <div>
+          <div class="target-name">${t.host}</div>
+          <div class="target-meta">Port: ${t.port || 80} &bull; ${codeTxt}</div>
+        </div>
+      </div>
+      <div class="target-status">
+        ${stBadge}
+        <span style="font-family:monospace;color:var(--cyan);font-weight:700;font-size:14px">${pingTxt}</span>
+        <button class="btn btn-sm btn-del" onclick="deleteTarget('${t.host}', ${t.port || 80})">&#x2715; Delete</button>
+      </div>
+    </div>
+    `;
+  });
+  listEl.innerHTML = html;
+}
+
+async function addTarget(){
+  const host = document.getElementById('newHost').value.trim();
+  const port = parseInt(document.getElementById('newPort').value) || 80;
+  if(!host){ alert('Please enter target server hostname'); return; }
+  const msg = document.getElementById('targetMsg');
+  msg.innerText = `Adding target ${host}...`;
+  await fetch('/api/target/add', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({host: host, port: port})
+  });
+  document.getElementById('newHost').value = '';
+  msg.innerText = `Target ${host} added!`;
+  setTimeout(()=>{ msg.innerText = ''; fetchStatus(); triggerTest(); }, 1200);
+}
+
+async function deleteTarget(host, port){
+  if(!confirm(`Remove target server ${host}?`)) return;
+  const msg = document.getElementById('targetMsg');
+  msg.innerText = `Deleting target ${host}...`;
+  await fetch('/api/target/delete', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({host: host, port: port})
+  });
+  msg.innerText = `Target ${host} removed!`;
+  setTimeout(()=>{ msg.innerText = ''; fetchStatus(); }, 1000);
+}
+
+function renderExtremes(s){
+  const td = s.today || {};
+  if(td.date) document.getElementById('tdTag').innerText = td.date;
+  if(td.total > 0){
+    document.getElementById('tdUptime').innerText = (td.uptime_pct !== undefined ? td.uptime_pct : 100.0) + '%';
+    document.getElementById('tdPingMin').innerText = td.ping_min || 0;
+    document.getElementById('tdPingMax').innerText = td.ping_max || 0;
+    const avg = td.up > 0 ? (td.ping_sum / td.up).toFixed(1) : 0;
+    document.getElementById('tdPingAvg').innerText = avg;
+    document.getElementById('tdSummary').innerText = `Total Checks: ${td.total} (${td.up} Up / ${td.total - td.up} Outages)`;
+  }
+
+  const mo = s.month || {};
+  if(mo.month) document.getElementById('moTag').innerText = mo.month;
+  if(mo.total > 0){
+    document.getElementById('moUptime').innerText = (mo.uptime_pct !== undefined ? mo.uptime_pct : 100.0) + '%';
+    document.getElementById('moPingMin').innerText = mo.ping_min || 0;
+    document.getElementById('moPingMax').innerText = mo.ping_max || 0;
+    const avg = mo.up > 0 ? (mo.ping_sum / mo.up).toFixed(1) : 0;
+    document.getElementById('moPingAvg').innerText = avg;
+    document.getElementById('moSummary').innerText = `Total Checks: ${mo.total} (${mo.up} Up / ${mo.total - mo.up} Outages)`;
+  }
+}
+
+async function triggerTest(){
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.querySelector('span').innerText = 'Probing targets...';
+  try{ await fetch('/api/run', {method:'POST'}); }catch(e){}
+  
+  let attempts = 0;
+  const pollInterval = setInterval(async ()=>{
+    attempts++;
+    try{
+      const r = await fetch('/api/status');
+      if(r.ok){
+        await fetchStatus();
+        if(attempts >= 3) clearInterval(pollInterval);
+      }
+    }catch(err){}
+    if(attempts > 12){
+      clearInterval(pollInterval);
+      fetchStatus();
+    }
+  }, 2200);
+}
+
+async function updateInterval(){
+  const v = parseInt(document.getElementById('intervalSel').value);
+  try{
+    await fetch('/api/config', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({interval_min: v})
+    });
+    fetchStatus();
+  }catch(e){ console.error(e); }
+}
+
+async function saveWifi(){
+  const s = document.getElementById('ssid').value;
+  const p = document.getElementById('pw').value;
+  if(!s){ alert('Please enter SSID'); return; }
+  const msg = document.getElementById('cfgMsg');
+  msg.innerText = 'Saving credentials and restarting Wi-Fi...';
+  await fetch('/api/config', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ssid:s, password:p})
+  });
+}
+
+fetchStatus();
+setInterval(fetchStatus, 6000);
+</script>
+</body>
+</html>

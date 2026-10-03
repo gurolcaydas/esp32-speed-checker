@@ -1,8 +1,12 @@
 {
   "wifi_ssid": "YOUR_WIFI_SSID",
   "wifi_password": "YOUR_WIFI_PASSWORD",
-  "target_server": "caydas.cloud",
-  "target_port": 80,
+  "target_servers": [
+    {
+      "host": "caydas.cloud",
+      "port": 80
+    }
+  ],
   "auto_test_interval_min": 5,
   "timezone_offset_hours": 3,
   "ap_ssid": "ESP32-ServerMonitor",
