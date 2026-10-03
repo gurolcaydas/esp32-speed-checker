@@ -37,16 +37,17 @@ This OLED is **physically divided into two distinct color zones**:
 2. **Blue Zone (Rows 16 to 63, 48px high):**
    * Lower 48 pixels glow bright Blue.
    * **16-Character Grid:** With standard 8x8 font, each row fits **16 characters (128 pixels)**.
-   * **2-Target Slot Pattern (8 chars each):**
+   * **2-Target Slot Pattern (Rows 1–3: Y=18, Y=29, Y=40):**
      * `[NAME 4 chars][ICON 1 char][PING 3 chars]` (64px wide).
      * Col 0: X = 0..63 (`CAYD ▲ 140`)
      * Col 1: X = 64..127 (`NALS ▲  28`)
+     * **Slot Purity Rule:** Only display real configured targets in these slots. Never inject synthetic "Gateway" or filler items. If 0 targets are configured, leave Rows 1–3 completely clean and empty.
    * **Custom Pixel Icons (in `display.py`):**
      * `draw_up_icon(x, y)`: Crisp 5x7 upward arrow (▲).
      * `draw_down_icon(x, y)`: Crisp 5x7 downward arrow (▼).
      * `draw_antenna_icon(x, y)`: 5x7 Wi-Fi antenna (antenna mast).
      * `draw_signal_bars(x, y, rssi)`: 4-step dynamic signal strength meter.
-   * **Row 4 (Y=52):** Dedicated Wi-Fi status line with antenna icon, RSSI dBm, signal bars, and Gateway ping.
+   * **Row 4 (Y=52):** Dedicated connection telemetry line: Wi-Fi antenna icon, RSSI dBm, 4-bar signal meter, and Gateway ping (`GW ▲ 40m`).
 
 ### Tested Driver:
 * **[ssd1306.py](file:///c:/Users/gcayd/OneDrive/Desktop/code/esp32/ssd1306.py)** (MicroPython `framebuf` driver).
@@ -121,6 +122,38 @@ This OLED is **physically divided into two distinct color zones**:
     *.bin
     ```
   * Keep `config.example.json` with dummy values for repository clones.
+
+---
+
+### ❌ PITFALL 5: Unbounded History Buffers & Flash Wear
+* **What Happened:** Storing check records in RAM and saving them to `history.json` on flash. If unbounded, heap memory exhausts and flash wear accelerates.
+* **Golden Rule for Next AI:**
+  * **Strict Cap:** Enforce a circular buffer capped at **20 entries** maximum (`if len(history) > 20: history.pop(0)`).
+  * **Slicing on Boot:** Always slice loaded records on boot: `h[-20:]`.
+  * **Compact Schemas:** Do not store verbose exceptions or raw HTTP strings in historical arrays.
+  * **Memory Hygiene:** Call `gc.collect()` before and after flash JSON operations.
+
+---
+
+### ❌ PITFALL 6: Deployment Overwriting Device-Side Flash Config
+* **What Happened:** When deploying code from PC using `sync_esp.py`, a stale local `config.json` was overwriting changes made directly by the user on the device's web dashboard (e.g. added/deleted servers).
+* **Golden Rule for Next AI:**
+  * In PC sync scripts (`sync_esp.py`), **always check if `config.json` already exists on the ESP32**:
+    ```python
+    ser.write(b"import os; print('HAS_CFG:', 'config.json' in os.listdir())\n\x04")
+    ```
+  * If it exists, **preserve it** on the ESP32 and sync it back to the PC to keep local workspace in sync with device state.
+  * Only push a fresh `config.json` on first flash or if explicit credentials are provided via CLI arguments.
+
+---
+
+### ❌ PITFALL 7: MicroPython Falsy Lists (`[] or [default]`)
+* **What Happened:** Using `target_servers = targets or [{"host": "caydas.cloud"}]` caused an empty list `[]` (when the user purposely deleted all targets) to evaluate as falsy, immediately reviving the default targets!
+* **Golden Rule for Next AI:**
+  * Always use explicit `None` checks:
+    ```python
+    target_servers = targets if targets is not None else [{"host": "default.com"}]
+    ```
 
 ---
 
