@@ -10,6 +10,7 @@ Handles:
 
 import os
 import sys
+import shutil
 import subprocess
 import json
 import urllib.request
@@ -33,6 +34,24 @@ __pycache__/
 *.log
 """
 
+def get_gh_executable():
+    """Finds gh executable on PATH or in standard Windows installation paths."""
+    # 1. On current PATH
+    path = shutil.which("gh")
+    if path:
+        return f'"{path}"'
+
+    # 2. Check standard Windows directories if terminal PATH hasn't refreshed yet
+    standard_paths = [
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "GitHub CLI", "gh.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "GitHub CLI", "gh.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "GitHub CLI", "gh.exe"),
+    ]
+    for p in standard_paths:
+        if os.path.isfile(p):
+            return f'"{p}"'
+    return None
+
 def run_cmd(cmd, check=True):
     print(f"-> {cmd}")
     res = subprocess.run(cmd, shell=True, text=True, capture_output=True)
@@ -50,20 +69,11 @@ def ensure_gitignore():
         with open(".gitignore", "w") as f:
             f.write(DEFAULT_GITIGNORE)
     else:
-        # Verify config.json is ignored
         with open(".gitignore", "r") as f:
             content = f.read()
         if "config.json" not in content:
             with open(".gitignore", "a") as f:
                 f.write("\nconfig.json\nsecrets.py\n*.bin\n")
-
-def check_gh_installed():
-    res = run_cmd("gh --version", check=False)
-    return res.returncode == 0
-
-def check_gh_logged_in():
-    res = run_cmd("gh auth status", check=False)
-    return res.returncode == 0
 
 def create_repo_via_api(token, repo_name, description="", private=False):
     url = "https://api.github.com/user/repos"
@@ -122,24 +132,32 @@ def main():
 
     # Stage and commit
     run_cmd("git add .")
-    run_cmd('git commit -m "Initial commit: ESP32 Network Speed Checker & Diagnostic Station"', check=False)
+    run_cmd('git commit -m "Initial commit"', check=False)
 
     # Check for GitHub CLI
-    if check_gh_installed():
-        if not check_gh_logged_in():
-            print("\nGitHub CLI is installed but not authenticated.")
-            print("Running 'gh auth login'...")
-            subprocess.run("gh auth login", shell=True)
+    gh_bin = get_gh_executable()
+    if gh_bin:
+        # Check login status
+        auth_check = run_cmd(f"{gh_bin} auth status", check=False)
+        if auth_check.returncode != 0:
+            print("\nGitHub CLI is installed but not logged in. Running web login...")
+            subprocess.run(f"{gh_bin} auth login --web -p https", shell=True)
 
         vis_flag = "--private" if is_private else "--public"
         print(f"\nCreating and publishing repository '{repo_name}' via GitHub CLI...")
-        res = run_cmd(f'gh repo create "{repo_name}" {vis_flag} --source=. --remote=origin --push', check=False)
+        res = run_cmd(f'{gh_bin} repo create "{repo_name}" {vis_flag} --source=. --remote=origin --push', check=False)
         if res.returncode == 0:
-            print("\nSUCCESS! Repository published to GitHub.")
+            print("\n==============================================")
+            print(" SUCCESS! Project successfully published to GitHub.")
+            print("==============================================\n")
+            return
+        elif "already exists" in res.stderr:
+            print(f"Repository '{repo_name}' already exists on your GitHub account. Pushing code...")
+            run_cmd("git push -u origin main", check=False)
             return
 
     # Fallback: GitHub Personal Access Token or existing Remote URL
-    print("\nGitHub CLI not found or not used. You can use a GitHub Personal Access Token (PAT) or Repo URL.")
+    print("\nGitHub CLI fallback: You can use a GitHub Personal Access Token (PAT) or Repo URL.")
     choice = input("Enter (1) GitHub Token, or (2) Existing Repo URL, or (3) Exit [1]: ").strip() or "1"
 
     if choice == "1":
@@ -147,13 +165,11 @@ def main():
         if not token:
             print("No token provided. Aborting.")
             return
-        clone_url = create_repo_via_api(token, repo_name, description="ESP32 Network Speed Checker & Diagnostics", private=is_private)
-        # Push with token
+        clone_url = create_repo_via_api(token, repo_name, description=repo_name, private=is_private)
         auth_url = clone_url.replace("https://", f"https://{token}@")
         run_cmd("git remote remove origin", check=False)
         run_cmd(f'git remote add origin "{auth_url}"')
         run_cmd("git push -u origin main")
-        # Sanitize remote URL after push so token is not stored in plaintext .git/config
         run_cmd(f'git remote set-url origin "{clone_url}"')
         print(f"\nSUCCESS! Published to: {clone_url}")
 
