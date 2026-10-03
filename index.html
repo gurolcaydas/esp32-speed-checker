@@ -664,7 +664,7 @@ async function deleteTarget(host, port){
     body: JSON.stringify({host: host, port: port})
   });
   msg.innerText = `Target ${host} removed!`;
-  setTimeout(()=>{ msg.innerText = ''; fetchStatus(); }, 1000);
+  setTimeout(()=>{ msg.innerText = ''; fetchStatus(); triggerTest(); }, 1000);
 }
 
 function renderExtremes(s){

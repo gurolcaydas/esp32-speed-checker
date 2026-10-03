@@ -55,21 +55,39 @@ def deploy(wifi_ssid=None, wifi_password=None):
     ser = connect_serial()
     print("Connected to ESP32 on COM4.")
 
-    # If Wi-Fi credentials provided, update config.json locally first
+    # Check if config.json exists on ESP32
+    ser.write(b"import os; print('HAS_CFG:', 'config.json' in os.listdir())\n\x04")
+    out = ser.read_until(b'\x04>').decode('utf-8', errors='replace')
+    has_remote_cfg = 'HAS_CFG: True' in out
+
     if wifi_ssid is not None:
         import json
         cfg = {
             "wifi_ssid": wifi_ssid,
             "wifi_password": wifi_password or "",
-            "auto_test_interval_min": 30,
-            "ap_ssid": "ESP32-SpeedChecker",
+            "target_servers": [{"host": "caydas.cloud", "port": 80}],
+            "auto_test_interval_min": 5,
+            "timezone_offset_hours": 3,
+            "ap_ssid": "ESP32-ServerMonitor",
             "ap_password": ""
         }
         with open("config.json", "w") as f:
             json.dump(cfg, f, indent=2)
         upload_file(ser, "config.json", "config.json")
-    elif os.path.exists("config.json"):
+    elif not has_remote_cfg and os.path.exists("config.json"):
         upload_file(ser, "config.json", "config.json")
+    elif has_remote_cfg:
+        print("Preserving config.json on ESP32 (saved targets intact).")
+        try:
+            ser.write(b"f = open('config.json', 'r'); print('===CFG==='); print(f.read()); print('===ENDCFG==='); f.close()\n\x04")
+            cfg_raw = ser.read_until(b'\x04>').decode('utf-8', errors='replace')
+            if '===CFG===' in cfg_raw and '===ENDCFG===' in cfg_raw:
+                remote_json = cfg_raw.split('===CFG===')[1].split('===ENDCFG===')[0].strip()
+                with open("config.json", "w") as f:
+                    f.write(remote_json)
+                print("  Synced ESP32 config.json back to local PC.")
+        except Exception as e:
+            print("  Note: could not pull remote config:", e)
 
     files_to_upload = [
         ("config_manager.py", "config_manager.py"),

@@ -10,7 +10,7 @@ HISTORY_FILE = "history.json"
 class ServerMonitor:
     def __init__(self, disp=None, target_servers=None, tz_offset_hours=3):
         self.disp = disp
-        self.target_servers = target_servers or [{"host": "caydas.cloud", "port": 80}]
+        self.target_servers = target_servers if target_servers is not None else [{"host": "caydas.cloud", "port": 80}]
         self.tz_offset_hours = tz_offset_hours
         self.stats = self._load_stats()
         self.history = self._load_history()

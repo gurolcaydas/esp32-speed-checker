@@ -204,18 +204,9 @@ class DisplayManager:
         # 1. Yellow Header: Bare Device IP (centered) or NO CONNECTION
         self.draw_yellow_ip_header(ip, is_connected=is_connected)
 
-        # 2. Build list of targets to display
+        # 2. Render actual configured targets across Rows 1, 2, 3 (up to 6 targets, 2 per row)
+        # If no website is configured or slots are empty, keep them clean and empty.
         targets = list(servers) if servers else []
-
-        # If only 1 target, append Gateway as second slot on Row 1
-        if len(targets) == 1:
-            targets.append({
-                "server": "Gateway",
-                "is_up": (net_ms > 0),
-                "ping_ms": net_ms
-            })
-
-        # Render up to 6 targets across Rows 1, 2, 3
         row_ys = [18, 29, 40]
         slot_idx = 0
         for s in targets[:6]:
@@ -230,26 +221,6 @@ class DisplayManager:
                     ping_ms=s.get("ping_ms", 0)
                 )
             slot_idx += 1
-
-        # If 2 targets were shown and row 2 is empty, show Gateway and Uptime status on Row 2
-        if slot_idx == 2:
-            # Row 2 left: Gateway
-            self.draw_target_slot(
-                col=0,
-                row_y=29,
-                host="Gateway",
-                is_up=(net_ms > 0),
-                ping_ms=net_ms
-            )
-            # Row 2 right: Status
-            up_all = all(s.get("is_up") for s in servers)
-            self.oled.text("ALL" if up_all else "SOME", 64, 29, 1)
-            if up_all:
-                self.draw_up_icon(64 + 33, 29)
-                self.oled.text("OK ", 64 + 40, 29, 1)
-            else:
-                self.draw_down_icon(64 + 33, 29)
-                self.oled.text("OUT", 64 + 40, 29, 1)
 
         # 3. Row 4 (Y = 52): Wi-Fi Antenna Icon, RSSI dBm, Signal Bars, and Gateway Ping
         self.oled.hline(0, 50, self.width, 1)
