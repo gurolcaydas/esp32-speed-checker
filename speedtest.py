@@ -371,7 +371,8 @@ class ServerMonitor:
                 servers=server_results,
                 net_ms=net_res['avg'],
                 rssi=wifi_info.get('rssi', -50),
-                ip=wifi_info.get('ip', '0.0.0.0')
+                ip=wifi_info.get('ip', '0.0.0.0'),
+                is_connected=wifi_info.get('connected', False)
             )
 
         self.is_running = False

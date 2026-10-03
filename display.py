@@ -36,24 +36,36 @@ class DisplayManager:
         except Exception as e:
             print("Display init error:", e)
 
-    def draw_yellow_ip_header(self, ip=None):
-        """Always draws the device IP centered in the 16px Yellow zone (Rows 0-15)."""
+    def draw_yellow_header(self, text):
+        """Draws centered text in the 16px Yellow zone (Rows 0-15) on solid yellow bar."""
         if not self.is_available:
             return
-        if ip and ip != "0.0.0.0":
-            self.last_ip = ip
-
-        # Solid illuminated yellow header bar with black text
+        # Solid illuminated yellow header bar
         self.oled.fill_rect(0, 0, self.width, 16, 1)
-
-        if self.last_ip and self.last_ip != "0.0.0.0":
-            text = f"IP: {self.last_ip}"
-        else:
-            text = "IP: CONNECTING"
-
         txt_len = len(text) * 8
-        x = max(2, (self.width - txt_len) // 2)
+        x = max(0, (self.width - txt_len) // 2)
         self.oled.text(text, x, 4, 0)
+
+    def draw_yellow_ip_header(self, ip=None, is_connected=None):
+        """
+        Draws the bare device IP centered in the 16px Yellow zone (no 'IP:' prefix).
+        If no connection, shows centered 'NO CONNECTION' on the same line.
+        """
+        if not self.is_available:
+            return
+
+        if ip:
+            if ip == "0.0.0.0":
+                is_connected = False
+            else:
+                self.last_ip = ip
+
+        if is_connected is False or not self.last_ip or self.last_ip == "0.0.0.0":
+            text = "NO CONNECTION"
+        else:
+            text = self.last_ip
+
+        self.draw_yellow_header(text)
 
     # --- CUSTOM 8x8 GRAPHIC ICONS ---
 
@@ -129,7 +141,7 @@ class DisplayManager:
         if not self.is_available:
             return
         self.oled.fill(0)
-        self.draw_yellow_ip_header("0.0.0.0")
+        self.draw_yellow_header("STARTING...")
         self.oled.text("SERVER SENTINEL", 4, 22, 1)
         self.oled.text("ESP-WROOM-32", 14, 35, 1)
         self.oled.text("Starting probe...", 0, 48, 1)
@@ -139,7 +151,7 @@ class DisplayManager:
         if not self.is_available:
             return
         self.oled.fill(0)
-        self.draw_yellow_ip_header("0.0.0.0")
+        self.draw_yellow_header("CONNECTING...")
         self.oled.text("Connecting Wi-Fi", 0, 20, 1)
         self.oled.text(f"SSID:{ssid[:11]}", 0, 33, 1)
         self.oled.text("Please wait...", 0, 48, 1)
@@ -150,9 +162,8 @@ class DisplayManager:
             return
         self.last_ip = ip
         self.oled.fill(0)
-        # Yellow Zone: AP IP
-        self.oled.fill_rect(0, 0, self.width, 16, 1)
-        self.oled.text(f"AP: {ip}", 8, 4, 0)
+        # Yellow Zone: Centered bare AP IP
+        self.draw_yellow_header(ip)
 
         # Blue Zone
         self.oled.text(f"SSID:{ssid[:11]}", 0, 20, 1)
@@ -178,10 +189,10 @@ class DisplayManager:
             self.oled.text("Measuring...", 18, 50, 1)
         self.oled.show()
 
-    def show_multi_server_status(self, servers, net_ms=0, rssi=-50, ip=""):
+    def show_multi_server_status(self, servers, net_ms=0, rssi=-50, ip="", is_connected=None):
         """
         Renders the enhanced UI:
-        - Yellow Header: Always shows IP
+        - Yellow Header: Bare IP or centered NO CONNECTION warning
         - Rows 1 to 3 (Y=18, Y=29, Y=40): 2 targets per line (8 chars each: NAME▲PING)
         - Row 4 (Y=52): Wi-Fi Antenna Icon, RSSI dBm, Signal Bars, and Gateway Ping
         """
@@ -190,8 +201,8 @@ class DisplayManager:
 
         self.oled.fill(0)
 
-        # 1. Yellow Header: ALWAYS Device IP
-        self.draw_yellow_ip_header(ip)
+        # 1. Yellow Header: Bare Device IP (centered) or NO CONNECTION
+        self.draw_yellow_ip_header(ip, is_connected=is_connected)
 
         # 2. Build list of targets to display
         targets = list(servers) if servers else []
@@ -264,7 +275,7 @@ class DisplayManager:
 
         self.oled.show()
 
-    def show_server_status(self, target="caydas.cloud", is_up=True, status_code=200, ping_ms=0, net_ms=0, rssi=-50, ip=""):
+    def show_server_status(self, target="caydas.cloud", is_up=True, status_code=200, ping_ms=0, net_ms=0, rssi=-50, ip="", is_connected=None):
         """Backwards compatibility wrapper delegating to multi-server layout."""
         servers = [{
             "server": target,
@@ -272,4 +283,4 @@ class DisplayManager:
             "status_code": status_code,
             "ping_ms": ping_ms
         }]
-        self.show_multi_server_status(servers, net_ms=net_ms, rssi=rssi, ip=ip)
+        self.show_multi_server_status(servers, net_ms=net_ms, rssi=rssi, ip=ip, is_connected=is_connected)

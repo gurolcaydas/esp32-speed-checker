@@ -33,7 +33,7 @@ The board is wired to a **0.96" Dual-Color OLED Display (128x64 pixels)** using 
 This OLED is **physically divided into two distinct color zones**:
 1. **Yellow Zone (Rows 0 to 15, 16px high):**
    * Top 16 pixels glow bright Yellow.
-   * **Design Rule:** Always use this area to display the device's IP (`IP: 192.168.1.41`) in inverted solid yellow (`fill_rect(0, 0, 128, 16, 1)`) with crisp black text.
+   * **Design Rule:** Always use this area to display the bare device IP centered (e.g. `192.168.1.41`, no `IP:` prefix) in inverted solid yellow (`fill_rect(0, 0, 128, 16, 1)`) with crisp black text. If disconnected, display centered warning `NO CONNECTION` on the same line.
 2. **Blue Zone (Rows 16 to 63, 48px high):**
    * Lower 48 pixels glow bright Blue.
    * **16-Character Grid:** With standard 8x8 font, each row fits **16 characters (128 pixels)**.
